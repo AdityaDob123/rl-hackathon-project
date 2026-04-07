@@ -1,3 +1,14 @@
+---
+title: tradedesk-openenv
+emoji: 🚀
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_file: app.py
+pinned: false
+---
+
+
 # TradeDesk OpenEnv
 
 A trading decision environment built for the **Scaler x Meta PyTorch OpenEnv Hackathon (Round 1)**.
