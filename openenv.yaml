@@ -1,0 +1,53 @@
+name: tradedesk-openenv
+version: 1.2.0
+kind: environment
+summary: Deterministic OpenEnv-style trading desk benchmark with three graded tasks.
+description: |
+  TradeDesk OpenEnv is a lightweight, validator-friendly trading decision environment.
+  It uses fixed scenario snapshots, typed schemas, reproducible rewards, and a FastAPI
+  service that supports reset, step, and state inspection. One task is single-step,
+  and two tasks are multi-step to better reflect sequential human desk decisions.
+entrypoint:
+  module: app.api
+  app: app
+api:
+  root: /
+  health: /health
+  tasks: /tasks
+  reset: /reset
+  step: /step
+  state: /state
+models:
+  observation: app.models.Observation
+  action: app.models.Action
+  reward: app.models.Reward
+tasks:
+  - task_id: easy_signal_detection
+    difficulty: easy
+    max_steps: 1
+    description: Select the best immediate action for a bullish single-stock signal.
+  - task_id: medium_position_management
+    difficulty: medium
+    max_steps: 2
+    description: De-risk a losing position and then react to the next stabilized state.
+  - task_id: hard_portfolio_allocation
+    difficulty: hard
+    max_steps: 2
+    description: Allocate capital across a watchlist, then adapt after a volatility spike.
+runtime:
+  deterministic: true
+  cpu_only: true
+  heavy_compute_required: false
+  external_market_data: false
+validator_assumptions:
+  reset_accepts_empty_body: true
+  health_endpoint_required: true
+  docker_build_expected: true
+artifacts:
+  - outputs/baseline_summary.json
+  - outputs/task_scores.png
+  - outputs/reward_breakdown.png
+  - outputs/confidence_vs_score.png
+  - outputs/reward_trajectory.png
+  - outputs/reward_radar.png
+  - outputs/action_heatmap.png
