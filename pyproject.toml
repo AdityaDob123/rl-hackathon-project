@@ -5,13 +5,13 @@ description = "RL-based trading decision OpenEnv"
 authors = [{name = "Aditya Dobriyal"}]
 readme = "README.md"
 requires-python = ">=3.9"
-
 dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
     "numpy",
     "pandas",
+    "openenv>=0.1.0",
     "openenv>=0.2.0"
 ]
 
