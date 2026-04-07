@@ -1,0 +1,19 @@
+[project]
+name = "tradedesk-openenv"
+version = "1.0.0"
+description = "RL-based trading decision OpenEnv"
+authors = [{name = "Aditya Dobriyal"}]
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "numpy",
+    "pandas"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
