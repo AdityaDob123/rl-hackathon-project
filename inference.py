@@ -32,7 +32,7 @@ def run() -> Dict:
     for task in env.available_tasks():
         task_id = task["task_id"]
 
-        # ✅ REQUIRED FORMAT
+        
         print(f"[START] task={task_id}", flush=True)
 
         observation = env.reset(task_id)
@@ -50,7 +50,7 @@ def run() -> Dict:
             action, reasoning = agent.act(observation, history)
             next_obs, reward, done, info = env.step(action)
 
-            # ✅ REQUIRED FORMAT
+           
             print(
                 f"[STEP] step={observation.step_index} action={action.action_type} reward={reward.value:.4f}",
                 flush=True,
@@ -75,7 +75,7 @@ def run() -> Dict:
             if done:
                 break
 
-        # ✅ REQUIRED FORMAT
+        
         print(
             f"[END] task={task_id} score={task_result['final_score']:.4f} steps={len(task_result['steps'])}",
             flush=True,
