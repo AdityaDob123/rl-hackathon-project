@@ -86,9 +86,9 @@ def grade_hard(action: Action, task: Dict, step: Dict) -> float:
 
     allocations = action.target_allocations or {}
 
+    
     if allocations:
-        if allocations:
-    top_pick = max(allocations.items(), key=lambda x: x[1])[0]
+     top_pick: str = max(allocations.items(), key=lambda x: x[1])[0]
 
     if top_pick == gold["top_pick"]:
         score += 0.20
