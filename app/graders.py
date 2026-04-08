@@ -4,10 +4,11 @@ from typing import Dict, List
 
 from .models import Action
 
+
 def _safe_score(score: float) -> float:
     eps = 1e-6
     if score <= 0:
-        return eps
+        return 0.0
     if score >= 1:
         return 1 - eps
     return score
@@ -16,10 +17,8 @@ def _safe_score(score: float) -> float:
 def _tag_overlap(submitted: List[str], gold: List[str]) -> float:
     if not gold:
         return 0.0
-
     submitted_tags = set(submitted)
     gold_tags = set(gold)
-
     common = submitted_tags & gold_tags
     return len(common) / len(gold_tags)
 
@@ -58,7 +57,6 @@ def grade_medium(action: Action, step: Dict) -> float:
 
     if action.order_fraction is not None:
         low, high = gold["order_fraction_band"]
-
         if low <= action.order_fraction <= high:
             score += 0.25
         elif action.order_fraction >= 0.50:
@@ -86,12 +84,12 @@ def grade_hard(action: Action, task: Dict, step: Dict) -> float:
 
     allocations = action.target_allocations or {}
 
-    
     if allocations:
-     top_pick: str = max(allocations.items(), key=lambda x: x[1])[0]
+        top_pick = max(allocations.items(), key=lambda x: x[1])[0]
 
-    if top_pick == gold["top_pick"]:
-        score += 0.20
+        if top_pick == gold["top_pick"]:
+            score += 0.20
+
         max_weight = max(allocations.values())
         if max_weight <= constraints["max_single_name_weight"]:
             score += 0.15
@@ -99,7 +97,6 @@ def grade_hard(action: Action, task: Dict, step: Dict) -> float:
         for ticker, band in gold["allocation_bands"].items():
             value = allocations.get(ticker, 0.0)
             low, high = band
-
             if low <= value <= high:
                 score += 0.15
             elif max(0.0, low - 0.08) <= value <= high + 0.08:
@@ -107,7 +104,6 @@ def grade_hard(action: Action, task: Dict, step: Dict) -> float:
 
         cash_reserve = max(0.0, 1.0 - sum(allocations.values()))
         cash_low, cash_high = gold["cash_reserve_band"]
-
         if cash_low <= cash_reserve <= cash_high:
             score += 0.10
 

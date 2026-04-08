@@ -1,0 +1,46 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-8.4.2, pluggy-1.5.0 -- C:\Users\Dell\anaconda3\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Dell\OneDrive\Desktop\meta\meta_RL_Team
+configfile: pytest.ini
+plugins: anyio-4.7.0
+collecting ... collected 25 items
+
+tests/test_smoke.py::test_env_smoke PASSED                               [  4%]
+tests/test_smoke.py::test_step_before_reset_raises PASSED                [  8%]
+tests/test_smoke.py::test_step_after_done_raises PASSED                  [ 12%]
+tests/test_smoke.py::test_invalid_action_type_is_scored_zero FAILED      [ 16%]
+tests/test_smoke.py::test_multistep_medium_task_progresses PASSED        [ 20%]
+tests/test_smoke.py::test_rebalance_allocation_validation PASSED         [ 24%]
+tests/test_smoke.py::test_negative_allocation_rejected PASSED            [ 28%]
+tests/test_smoke.py::test_buy_requires_ticker PASSED                     [ 32%]
+tests/test_smoke.py::test_buy_requires_order_fraction PASSED             [ 36%]
+tests/test_smoke.py::test_double_reset_is_clean PASSED                   [ 40%]
+tests/test_smoke.py::test_hard_task_rebalance_full_episode PASSED        [ 44%]
+tests/test_smoke.py::test_hold_on_all_tasks PASSED                       [ 48%]
+tests/test_smoke.py::test_available_tasks_returns_all PASSED             [ 52%]
+tests/test_smoke.py::test_strategy_engine_easy_task PASSED               [ 56%]
+tests/test_smoke.py::test_strategy_engine_medium_task PASSED             [ 60%]
+tests/test_smoke.py::test_strategy_engine_hard_task PASSED               [ 64%]
+tests/test_smoke.py::test_full_inference_pipeline PASSED                 [ 68%]
+tests/test_smoke.py::test_api_root PASSED                                [ 72%]
+tests/test_smoke.py::test_api_health PASSED                              [ 76%]
+tests/test_smoke.py::test_api_tasks_list PASSED                          [ 80%]
+tests/test_smoke.py::test_api_reset_allows_empty_body PASSED             [ 84%]
+tests/test_smoke.py::test_api_reset_invalid_task_returns_404 PASSED      [ 88%]
+tests/test_smoke.py::test_api_step_without_reset_returns_error PASSED    [ 92%]
+tests/test_smoke.py::test_api_endpoints_work PASSED                      [ 96%]
+tests/test_smoke.py::test_api_state_endpoint PASSED                      [100%]
+
+================================== FAILURES ===================================
+___________________ test_invalid_action_type_is_scored_zero ___________________
+tests\test_smoke.py:47: in test_invalid_action_type_is_scored_zero
+    assert info["final_score"] == 0.0
+E   assert 1e-06 == 0.0
+---------------------------- Captured stdout call -----------------------------
+[2026-04-08 18:22:21] [INFO   ] [env] RESET -> task=easy_signal_detection difficulty=easy
+=========================== short test summary info ===========================
+FAILED tests/test_smoke.py::test_invalid_action_type_is_scored_zero - assert ...
+======================== 1 failed, 24 passed in 6.23s =========================
+
+---STDERR---

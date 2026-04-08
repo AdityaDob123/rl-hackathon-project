@@ -4,6 +4,7 @@ import json
 import random
 from typing import Dict, List
 
+from agent.llm_agent import EXAMPLE_PROMPT, LLMReasoningAgent, StrategyEngine
 from app import config
 from app.env import TradeDeskOpenEnv
 from visualization.plots import ensure_output_dir, save_all_plots
@@ -13,18 +14,21 @@ from app.models import Action
 DETERMINISTIC_SEED = 7
 random.seed(DETERMINISTIC_SEED)
 
-__all__ = ["run"]
+__all__ = ["run", "StrategyEngine"]
 
 
 def run() -> Dict:
     env = TradeDeskOpenEnv()
-    agent = TradingAgent()
+
+    llm_agent = LLMReasoningAgent(seed=DETERMINISTIC_SEED)
+    custom_agent = TradingAgent()
 
     summary: Dict = {
         "tasks": [],
         "average_score": 0.0,
-        "agent_mode": "custom_trading_agent",
+        "agent_mode": "hybrid_llm_custom",
         "seed": DETERMINISTIC_SEED,
+        "example_prompt": EXAMPLE_PROMPT,
     }
 
     total_score = 0.0
@@ -46,16 +50,45 @@ def run() -> Dict:
         }
 
         while True:
-            action_type, reasoning_text = agent.act(observation)
+            # Try LLM agent first
+            try:
+                action, reasoning = llm_agent.act(observation, history)
 
-            ticker = observation.market[0].ticker if observation.market else None
+            # Fallback to custom agent
+            except Exception:
+                action_type, reasoning_text = custom_agent.act(observation)
 
-            action = Action(
-                action_type=action_type,
-                ticker=ticker,
-                confidence=0.5,
-                rationale_tags=["trend", "risk"],
-            )
+                ticker = observation.market[0].ticker if observation.market else None
+
+                # Build valid Action with all required fields
+                if action_type in ("buy", "sell", "reduce"):
+                    action = Action(
+                        action_type=action_type,
+                        ticker=ticker,
+                        order_fraction=0.25 if action_type != "sell" else 1.0,
+                        confidence=0.5,
+                        rationale_tags=["trend_label", "risk_management"],
+                    )
+                elif action_type == "rebalance":
+                    tickers = [s.ticker for s in observation.market]
+                    allocs = {t: round(0.8 / len(tickers), 2) for t in tickers} if tickers else {}
+                    action = Action(
+                        action_type="rebalance",
+                        target_allocations=allocs,
+                        confidence=0.5,
+                        rationale_tags=["risk_balanced", "cash_buffer"],
+                    )
+                else:
+                    action = Action(
+                        action_type="hold",
+                        confidence=0.5,
+                        rationale_tags=["capital_preservation"],
+                    )
+
+                reasoning = {
+                    "reasoning": reasoning_text,
+                    "indicator_summary": "fallback_custom_agent",
+                }
 
             next_obs, reward, done, info = env.step(action)
 
@@ -68,7 +101,8 @@ def run() -> Dict:
                 "step_index": observation.step_index,
                 "action": action.model_dump(),
                 "reward": reward.model_dump(),
-                "reasoning": reasoning_text,
+                "reasoning": reasoning["reasoning"],
+                "indicator_summary": reasoning.get("indicator_summary", ""),
                 "final_score": info["final_score"],
             }
 

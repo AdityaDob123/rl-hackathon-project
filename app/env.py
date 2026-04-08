@@ -13,7 +13,6 @@ from app.tasks import get_default_task_id, get_task, list_tasks
 log = get_logger("env")
 
 
-
 def get_market_phase(step: int) -> str:
     return ["ASIAN", "LONDON", "NEW_YORK"][step % 3]
 
@@ -23,8 +22,6 @@ class TradeDeskOpenEnv:
         self.state_manager = StateManager()
         self.current_task: Optional[Dict] = None
         self.current_step_index: int = 0
-
-  
 
     def available_tasks(self) -> List[Dict]:
         return [
@@ -37,12 +34,10 @@ class TradeDeskOpenEnv:
             for t in list_tasks()
         ]
 
-   
-
     def _observation_from_step(self, task: Dict, step_index: int) -> Observation:
         step = task["scenario_steps"][step_index]
 
-        obs = Observation(
+        return Observation(
             task_id=task["task_id"],
             difficulty=task["difficulty"],
             step_index=step_index,
@@ -52,13 +47,8 @@ class TradeDeskOpenEnv:
             positions={k: PositionState(**v) for k, v in step.get("positions", {}).items()},
             allowed_actions=step["allowed_actions"],
             notes=step.get("notes") or task.get("notes"),
+            market_phase=get_market_phase(step_index),
         )
-
-    
-        setattr(obs, "market_phase", get_market_phase(step_index))
-
-        return obs
-
 
     def _merge_action_effects(self, base_step: Dict, action: Action) -> Dict:
         step = deepcopy(base_step)
@@ -151,8 +141,6 @@ class TradeDeskOpenEnv:
 
         return step
 
-    
-
     def reset(self, task_id: Optional[str] = None) -> Observation:
         chosen_task = task_id or get_default_task_id()
         task = deepcopy(get_task(chosen_task))
@@ -169,8 +157,7 @@ class TradeDeskOpenEnv:
 
     def step(self, action: Action) -> Tuple[Observation, Reward, bool, Dict]:
         if self.current_task is None:
-            raise RuntimeError("Call reset() first.")
-
+            raise RuntimeError("Environment not initialized. Call reset(task_id) first.")
         if self.state_manager.done:
             raise RuntimeError("Episode already finished.")
 
@@ -198,7 +185,7 @@ class TradeDeskOpenEnv:
             "task_id": self.current_task["task_id"],
             "difficulty": self.current_task["difficulty"],
             "final_score": final_score,
-            "market_phase": get_market_phase(self.current_step_index),  # 🔥 visible in logs
+            "market_phase": get_market_phase(self.current_step_index),
         }
 
         return next_obs, reward, done, info

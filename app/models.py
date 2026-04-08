@@ -40,7 +40,6 @@ class PortfolioState(BaseModel):
     exposure_pct: float = Field(ge=0, le=100)
     cooldown_remaining: int = Field(ge=0)
 
-
 class Observation(BaseModel):
     task_id: str
     difficulty: Difficulty
@@ -51,7 +50,7 @@ class Observation(BaseModel):
     positions: Dict[str, PositionState]
     allowed_actions: List[ActionType]
     notes: Optional[str] = None
-
+    market_phase: Optional[str] = None
 
 class Action(BaseModel):
     action_type: ActionType

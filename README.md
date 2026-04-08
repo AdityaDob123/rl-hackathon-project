@@ -8,22 +8,94 @@ app_file: app.py
 pinned: false
 ---
 
-
 # TradeDesk OpenEnv
 
-A trading decision environment built for the **Scaler x Meta PyTorch OpenEnv Hackathon (Round 1)**.
+A deterministic trading-desk environment built for the **Scaler x Meta PyTorch OpenEnv Hackathon**.
 
-An AI agent is given market data and must make trading decisions (buy, sell, hold, rebalance). Each decision is scored by a grader. No real money, no live data — everything is deterministic and runs locally.
+An AI agent receives market data snapshots and makes trading decisions (buy, sell, hold, reduce, rebalance). Each decision is scored by a grading function. No real money, no live data — everything is deterministic and reproducible.
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                   inference.py                    │
+│   LLMReasoningAgent → fallback → TradingAgent     │
+└────────────┬─────────────────────┬───────────────┘
+             │  Action             │  Observation
+      ┌──────▼──────┐      ┌──────▼──────┐
+      │   env.py    │◄────►│  graders.py │
+      │ TradeDeskEnv│      │ easy/med/hrd│
+      └──────┬──────┘      └─────────────┘
+             │
+      ┌──────▼──────┐
+      │  tasks.py   │
+      │ 3 scenarios │
+      └─────────────┘
+```
+
+**Environment** (`app/env.py`): Manages the episode loop — `reset()` loads a task, `step()` applies an action, scores it, and returns the next observation.
+
+**Agent** (`agent/llm_agent.py`): Contains `StrategyEngine` (rule-based, deterministic) and `LLMReasoningAgent` (LLM wrapper with deterministic fallback).
+
+**Grader** (`app/graders.py`): Compares each action against gold-standard answers using difficulty-specific rubrics.
+
+---
+
+## Core Idea: Global Market Phase Simulation
+
+The environment simulates three global trading sessions rotating across steps:
+
+```
+Step 0 → ASIAN
+Step 1 → LONDON
+Step 2 → NEW_YORK
+Step 3 → ASIAN  (cycles)
+```
+
+The `TradingAgent` (fallback agent) uses a `GlobalSignalEngine` that tracks price returns across Asian and London sessions, then makes decisions during New York hours:
+
+- **Bullish continuation**: Asian up + London up → buy
+- **Pullback reversal**: Asian up + London down → buy on dip
+- **Bearish**: Both sessions down → sell
+
+This simulates how real institutional desks use overnight data to inform their trading day.
+
+---
+
+## Risk Management
+
+The system implements multiple layers of risk control:
+
+| Layer | Logic |
+|---|---|
+| **Drawdown monitoring** | `current_drawdown_pct` from `PortfolioState` triggers forced reductions above 15% |
+| **Loss streak detection** | `RiskManager` tracks consecutive losses and escalates from reduce → switch → force_reduce |
+| **Concentration limits** | Hard task enforces `max_single_name_weight` (50%) and `min_cash_reserve` (10%) |
+| **Order sizing** | `StrategyEngine` sizes orders based on signal strength, not fixed fractions |
+| **Confidence gating** | Low-confidence signals below 0.3 default to hold |
+
+The agent uses real indicator fields from the environment:
+
+- `rsi`, `macd`, `macd_signal` — momentum signals
+- `ema_20_gap_pct` — trend distance
+- `trend_label`, `volatility_label` — categorical context
+- `current_drawdown_pct`, `exposure_pct` — portfolio risk metrics
+
+---
+
+## The 3 Tasks
+
+| Task | Difficulty | Steps | What happens |
+|---|---|---|---|
+| **Signal Detection** | Easy | 1 | Read AAPL indicators, pick buy/sell/hold |
+| **Position Management** | Medium | 2 | MSFT is losing money — cut the position, then wait for stabilization |
+| **Portfolio Allocation** | Hard | 2 | Allocate $100k across 3 stocks, then rebalance after a volatility spike |
 
 ---
 
 ## How to Run
-
-Open **PowerShell** and navigate to the project folder (the directory that contains `requirements.txt`):
-
-```powershell
-cd path\to\tradedesk-openenv-complete
-```
 
 ### 1. Create and activate a virtual environment
 
@@ -41,18 +113,18 @@ pip install -r requirements.txt
 ### 3. Run the tests
 
 ```powershell
-pytest -q
+pytest -v
 ```
 
-You should see `25 passed`.
+All 25 tests should pass.
 
-### 4. Run the baseline agent
+### 4. Run the inference pipeline
 
 ```powershell
 python inference.py
 ```
 
-This runs the deterministic agent on all 3 tasks, prints scores, and saves results to the `outputs\` folder.
+Runs the agent on all 3 tasks, prints step-by-step scores, and saves results to `outputs/`.
 
 ### 5. Start the API server
 
@@ -60,76 +132,51 @@ This runs the deterministic agent on all 3 tasks, prints scores, and saves resul
 uvicorn app.api:app --host 0.0.0.0 --port 7860
 ```
 
-Open [http://localhost:7860](http://localhost:7860) in your browser to verify it's running.
-
 ---
 
-## Configuration (`.env` file)
+## Example Output
 
-All settings live in the `.env` file at the project root. The project works out of the box without changing anything.
-
-| Variable | Default | What it does |
-|---|---|---|
-| `APP_HOST` | `0.0.0.0` | Server bind address |
-| `APP_PORT` | `7860` | Server port |
-| `DEFAULT_TASK` | `easy_signal_detection` | Which task loads by default |
-| `OUTPUT_DIR` | `outputs` | Where results and charts are saved |
-| `LOG_LEVEL` | `info` | Logging verbosity |
-
-### Optional: LLM mode
-
-If you want the agent to use an AI model instead of the hardcoded baseline, fill these in `.env`:
-
-```env
-API_BASE_URL=https://api.openai.com/v1
-MODEL_NAME=gpt-4o-mini
-API_KEY=sk-your-key-here
 ```
+[START] task=easy_signal_detection
+[STEP] step=0 action=buy reward=0.7755
+[END] task=easy_signal_detection score=0.9000 steps=1
 
-Then run `python inference.py` — it will automatically use the LLM.
+[START] task=medium_position_management
+[STEP] step=0 action=sell reward=0.8755
+[STEP] step=1 action=hold reward=0.6530
+[END] task=medium_position_management score=0.7000 steps=2
 
----
-
-## The 3 Tasks
-
-| Task | Difficulty | What happens |
-|---|---|---|
-| **Signal Detection** | Easy | Look at AAPL's indicators, pick buy/sell/hold. (1 step) |
-| **Position Management** | Medium | MSFT is losing money — cut the position, then decide what to do when it stabilizes. (2 steps) |
-| **Portfolio Allocation** | Hard | Allocate $100k across 3 stocks, then rebalance when volatility spikes. (2 steps) |
+[START] task=hard_portfolio_allocation
+[STEP] step=0 action=rebalance reward=0.7805
+[STEP] step=1 action=rebalance reward=0.7955
+[END] task=hard_portfolio_allocation score=0.9800 steps=2
+```
 
 ---
 
 ## API Endpoints
 
-Once the server is running, you can interact with it from a **second PowerShell window**:
-
 | Method | Endpoint | What it does |
 |---|---|---|
-| `GET` | `/` | Shows app info |
+| `GET` | `/` | App info |
 | `GET` | `/health` | Health check |
-| `GET` | `/tasks` | Lists available tasks |
-| `POST` | `/reset` | Starts a task (send `{}` for default) |
-| `POST` | `/step` | Submits a trading action |
-| `GET` | `/state` | Shows current environment state |
+| `GET` | `/tasks` | List available tasks |
+| `POST` | `/reset` | Start a task (`{}` for default) |
+| `POST` | `/step` | Submit a trading action |
+| `GET` | `/state` | Current environment state |
 
-### Example: Run a task via PowerShell
+---
 
-```powershell
-# Reset to the easy task
-Invoke-RestMethod -Method POST -Uri "http://localhost:7860/reset" `
-  -ContentType "application/json" -Body '{}'
+## Configuration (`.env`)
 
-# Submit a buy action
-Invoke-RestMethod -Method POST -Uri "http://localhost:7860/step" `
-  -ContentType "application/json" -Body '{
-    "action_type": "buy",
-    "ticker": "AAPL",
-    "order_fraction": 0.25,
-    "confidence": 0.8,
-    "rationale_tags": ["trend_up", "macd_bullish"]
-  }'
-```
+| Variable | Default | Purpose |
+|---|---|---|
+| `DEFAULT_TASK` | `easy_signal_detection` | Default task on reset |
+| `OUTPUT_DIR` | `outputs` | Where results are saved |
+| `LOG_LEVEL` | `info` | Logging verbosity |
+| `API_BASE_URL` | `https://api.openai.com/v1` | LLM endpoint (optional) |
+| `MODEL_NAME` | `gpt-4o-mini` | LLM model (optional) |
+| `HF_TOKEN` | — | Auth token for LLM (optional) |
 
 ---
 
@@ -142,39 +189,31 @@ docker run -p 7860:7860 tradedesk-openenv
 
 ---
 
-## Output Files
-
-After running `python inference.py`, you'll find these in the `outputs\` folder:
-
-- `baseline_summary.json` — scores and step details for all tasks
-- `task_scores.png` — bar chart of final scores
-- `reward_breakdown.png` — reward component breakdown
-- `confidence_vs_score.png` — confidence vs score scatter plot
-- `reward_trajectory.png` — reward over steps
-
----
-
 ## Project Structure
 
 ```
-├── .env                    # Configuration file
-├── app\
-│   ├── config.py           # Loads settings from .env
+├── app/
+│   ├── config.py           # Settings from .env
 │   ├── api.py              # FastAPI server
-│   ├── env.py              # Main environment (reset/step/state)
-│   ├── models.py           # Data schemas (Observation, Action, Reward)
-│   ├── tasks.py            # The 3 task scenarios
-│   ├── graders.py          # Scoring logic
-│   └── reward.py           # Reward computation
-├── agent\
+│   ├── env.py              # Environment (reset/step/state)
+│   ├── models.py           # Pydantic schemas
+│   ├── tasks.py            # 3 task scenarios with gold answers
+│   ├── graders.py          # Difficulty-specific scoring
+│   ├── reward.py           # Dense reward computation
+│   ├── agent.py            # TradingAgent (fallback with GlobalSignalEngine)
+│   ├── risk_manager.py     # Loss streak and drawdown tracking
+│   ├── state_manager.py    # Episode state tracking
+│   └── logger.py           # Structured logging
+├── agent/
+│   ├── llm_agent.py        # StrategyEngine + LLMReasoningAgent
 │   └── baseline.py         # Random baseline agent
-├── inference.py            # Runs the agent on all tasks
-├── visualization\
+├── inference.py            # Main pipeline (runs all tasks)
+├── visualization/
 │   └── plots.py            # Chart generation
-├── tests\
-│   └── test_smoke.py       # Test suite
-├── pytest.ini              # Pytest: only collects tests/ at repo root
-├── Dockerfile              # Container build
-├── openenv.yaml            # Environment metadata
-└── requirements.txt        # Dependencies
+├── tests/
+│   └── test_smoke.py       # 25 test cases
+├── Dockerfile
+├── openenv.yaml
+├── requirements.txt
+└── pytest.ini
 ```
