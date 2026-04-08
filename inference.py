@@ -4,27 +4,27 @@ import json
 import random
 from typing import Dict, List
 
-from agent.llm_agent import EXAMPLE_PROMPT, LLMReasoningAgent, StrategyEngine
 from app import config
 from app.env import TradeDeskOpenEnv
 from visualization.plots import ensure_output_dir, save_all_plots
+from app.agent import TradingAgent
+from app.models import Action
 
 DETERMINISTIC_SEED = 7
 random.seed(DETERMINISTIC_SEED)
 
-__all__ = ["run", "StrategyEngine"]
+__all__ = ["run"]
 
 
 def run() -> Dict:
     env = TradeDeskOpenEnv()
-    agent = LLMReasoningAgent(seed=DETERMINISTIC_SEED)
+    agent = TradingAgent()
 
     summary: Dict = {
         "tasks": [],
         "average_score": 0.0,
-        "agent_mode": "llm" if agent.enabled else "strategy_engine",
+        "agent_mode": "custom_trading_agent",
         "seed": DETERMINISTIC_SEED,
-        "example_prompt": EXAMPLE_PROMPT,
     }
 
     total_score = 0.0
@@ -32,7 +32,6 @@ def run() -> Dict:
     for task in env.available_tasks():
         task_id = task["task_id"]
 
-        
         print(f"[START] task={task_id}", flush=True)
 
         observation = env.reset(task_id)
@@ -47,10 +46,19 @@ def run() -> Dict:
         }
 
         while True:
-            action, reasoning = agent.act(observation, history)
+            action_type, reasoning_text = agent.act(observation)
+
+            ticker = observation.market[0].ticker if observation.market else None
+
+            action = Action(
+                action_type=action_type,
+                ticker=ticker,
+                confidence=0.5,
+                rationale_tags=["trend", "risk"],
+            )
+
             next_obs, reward, done, info = env.step(action)
 
-           
             print(
                 f"[STEP] step={observation.step_index} action={action.action_type} reward={reward.value:.4f}",
                 flush=True,
@@ -60,8 +68,7 @@ def run() -> Dict:
                 "step_index": observation.step_index,
                 "action": action.model_dump(),
                 "reward": reward.model_dump(),
-                "reasoning": reasoning["reasoning"],
-                "indicator_summary": reasoning["indicator_summary"],
+                "reasoning": reasoning_text,
                 "final_score": info["final_score"],
             }
 
@@ -75,7 +82,6 @@ def run() -> Dict:
             if done:
                 break
 
-        
         print(
             f"[END] task={task_id} score={task_result['final_score']:.4f} steps={len(task_result['steps'])}",
             flush=True,
@@ -92,7 +98,6 @@ def run() -> Dict:
 if __name__ == "__main__":
     result = run()
 
-    # Save outputs (allowed)
     out_dir = ensure_output_dir(config.OUTPUT_DIR)
     summary_path = out_dir / "baseline_summary.json"
     summary_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
