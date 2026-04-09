@@ -7,6 +7,7 @@ from typing import Dict, List
 from agent.llm_agent import EXAMPLE_PROMPT, LLMReasoningAgent, StrategyEngine
 from app import config
 from app.env import TradeDeskOpenEnv
+from app.graders import _safe_score
 from visualization.plots import ensure_output_dir, save_all_plots
 from app.agent import TradingAgent
 from app.models import Action
@@ -124,7 +125,12 @@ def run() -> Dict:
         summary["tasks"].append(task_result)
         total_score += task_result["final_score"]
 
-    summary["average_score"] = round(total_score / len(summary["tasks"]), 4)
+    try:
+        average_score = total_score / len(summary["tasks"])
+    except ZeroDivisionError:
+        average_score = 0.5
+
+    summary["average_score"] = _safe_score(average_score)
 
     return summary
 
