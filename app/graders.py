@@ -9,7 +9,6 @@ from .models import Action
 def _safe_score(score: float) -> float:
     eps = 1e-6
     fallback = 0.5
-
     if score is None:
         return fallback
 
@@ -18,10 +17,10 @@ def _safe_score(score: float) -> float:
     except (TypeError, ValueError):
         return fallback
 
-    if math.isnan(safe_value):
+    if math.isnan(safe_value) or math.isinf(safe_value):
         return fallback
 
-    safe_value = max(eps, min(1 - eps, safe_value))
+    safe_value = max(eps, min(1.0 - eps, safe_value))
     return round(safe_value, 6)
 
 

@@ -143,3 +143,4 @@ if __name__ == "__main__":
     summary_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     save_all_plots(result, output_dir=str(out_dir))
+    print(json.dumps(result), flush=True)

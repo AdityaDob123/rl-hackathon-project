@@ -16,7 +16,7 @@ def test_env_smoke():
     action = Action(action_type="buy", ticker="AAPL", order_fraction=0.25, confidence=0.8, rationale_tags=["trend_up"])
     next_obs, reward, done, info = env.step(action)
     assert done is True
-    assert 0.0 <= info["final_score"] <= 1.0
+    assert 0.0 < info["final_score"] < 1.0
     assert -1.0 <= reward.value <= 1.0
     assert next_obs.step_index == 0
 
@@ -38,13 +38,13 @@ def test_step_after_done_raises():
         env.step(action)
 
 
-def test_invalid_action_type_is_scored_zero():
+def test_invalid_action_type_is_scored_minimum_safe_value():
     env = TradeDeskOpenEnv()
     env.reset("easy_signal_detection")
     action = Action(action_type="hold", confidence=0.5, rationale_tags=["wrong_side"])
     _, _, done, info = env.step(action)
     assert done is True
-    assert info["final_score"] == 0.0
+    assert info["final_score"] == 1e-06
 
 
 def test_multistep_medium_task_progresses():
@@ -60,7 +60,7 @@ def test_multistep_medium_task_progresses():
     action2 = Action(action_type="hold", ticker="MSFT", order_fraction=0.0, confidence=0.6, rationale_tags=["capital_preservation", "wait_for_confirmation", "reduced_risk"])
     _, _, done2, info2 = env.step(action2)
     assert done2 is True
-    assert 0.0 <= info2["final_score"] <= 1.0
+    assert 0.0 < info2["final_score"] < 1.0
 
 
 def test_rebalance_allocation_validation():
@@ -134,7 +134,7 @@ def test_hold_on_all_tasks():
         if "hold" in obs.allowed_actions:
             action = Action(action_type="hold", confidence=0.5, rationale_tags=["test"])
             _, _, done, info = env.step(action)
-            assert 0.0 <= info["final_score"] <= 1.0
+            assert 0.0 < info["final_score"] < 1.0
 
 
 def test_available_tasks_returns_all():
@@ -197,7 +197,7 @@ def test_full_inference_pipeline():
     assert len(result["tasks"]) == 3
     for task in result["tasks"]:
         assert task["done"] is True
-        assert 0.0 <= task["final_score"] <= 1.0
+        assert 0.0 < task["final_score"] < 1.0
 
 
 # ─────────────────────────────────────────────────
