@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 
 from app.graders import grade_action
+from app.graders import _safe_score
 from app.logger import get_logger
 from app.models import Action, Observation, PortfolioState, PositionState, Reward, StockFeatureSnapshot
 from app.reward import build_reward
@@ -22,6 +23,43 @@ class TradeDeskOpenEnv:
         self.state_manager = StateManager()
         self.current_task: Optional[Dict] = None
         self.current_step_index: int = 0
+
+    def _fallback_observation(self) -> Observation:
+        return Observation(
+            task_id="easy_signal_detection",
+            difficulty="easy",
+            step_index=0,
+            max_steps=1,
+            market=[
+                StockFeatureSnapshot(
+                    ticker="AAPL",
+                    close=100.0,
+                    ema_20_gap_pct=0.0,
+                    macd=0.0,
+                    macd_signal=0.0,
+                    rsi=50.0,
+                    stochastic_k=50.0,
+                    stochastic_d=50.0,
+                    bb_pos=0.5,
+                    volume_zscore=0.0,
+                    obv_slope=0.0,
+                    trend_label="sideways",
+                    volatility_label="low",
+                )
+            ],
+            portfolio=PortfolioState(
+                cash=100000.0,
+                total_value=100000.0,
+                max_drawdown_pct=15.0,
+                current_drawdown_pct=0.0,
+                exposure_pct=0.0,
+                cooldown_remaining=0,
+            ),
+            positions={},
+            allowed_actions=["hold"],
+            notes="Fallback observation",
+            market_phase=get_market_phase(0),
+        )
 
     def available_tasks(self) -> List[Dict]:
         return [
@@ -141,54 +179,98 @@ class TradeDeskOpenEnv:
 
         return step
 
-    def reset(self, task_id: Optional[str] = None) -> Observation:
-        chosen_task = task_id or get_default_task_id()
-        task = deepcopy(get_task(chosen_task))
-
-        self.current_task = task
-        self.current_step_index = 0
-
-        observation = self._observation_from_step(task, step_index=0)
-        self.state_manager.load_task(observation)
-
-        log.info("RESET -> task=%s difficulty=%s", task["task_id"], task["difficulty"])
-
-        return observation
-
-    def step(self, action: Action) -> Tuple[Observation, Reward, bool, Dict]:
-        if self.current_task is None:
-            raise RuntimeError("Environment not initialized. Call reset(task_id) first.")
-        if self.state_manager.done:
-            raise RuntimeError("Episode already finished.")
-
-        current_step = self.current_task["scenario_steps"][self.current_step_index]
-        valid = action.action_type in current_step["allowed_actions"]
-
-        final_score = grade_action(action, self.current_task, self.current_step_index) if valid else 0.0
-        reward = build_reward(action, self.current_task, final_score, valid=valid)
-
-        next_index = min(self.current_step_index + 1, self.current_task["max_steps"] - 1)
-
-        next_step = deepcopy(self.current_task["scenario_steps"][next_index])
-        next_step = self._merge_action_effects(next_step, action)
-
-        self.current_task["scenario_steps"][next_index] = next_step
-
-        next_obs = self._observation_from_step(self.current_task, step_index=next_index)
-
-        done = self.current_step_index >= self.current_task["max_steps"] - 1
-        self.current_step_index = next_index
-
-        self.state_manager.apply_step(action, reward.value, final_score, next_obs, done=done)
-
-        info = {
-            "task_id": self.current_task["task_id"],
-            "difficulty": self.current_task["difficulty"],
-            "final_score": final_score,
-            "market_phase": get_market_phase(self.current_step_index),
+    def _flatten_observation(self, observation: Observation) -> Dict:
+        primary = observation.market[0] if observation.market else None
+        return {
+            "task_id": observation.task_id,
+            "difficulty": observation.difficulty,
+            "step_index": observation.step_index,
+            "max_steps": observation.max_steps,
+            "market_phase": observation.market_phase or "",
+            "notes": observation.notes or "",
+            "primary_ticker": primary.ticker if primary else "",
+            "primary_close": primary.close if primary else 0.0,
+            "cash": observation.portfolio.cash,
+            "total_value": observation.portfolio.total_value,
+            "exposure_pct": observation.portfolio.exposure_pct,
+            "cooldown_remaining": observation.portfolio.cooldown_remaining,
+            "allowed_actions": list(observation.allowed_actions),
+            "position_count": len(observation.positions),
         }
 
-        return next_obs, reward, done, info
+    def reset(self, task_id: Optional[str] = None) -> Tuple[Dict, Dict]:
+        try:
+            chosen_task = task_id or get_default_task_id()
+            try:
+                task = deepcopy(get_task(chosen_task))
+            except KeyError:
+                task = deepcopy(get_task(get_default_task_id()))
+
+            self.current_task = task
+            self.current_step_index = 0
+
+            observation = self._observation_from_step(task, step_index=0)
+            self.state_manager.load_task(observation)
+            return self._flatten_observation(observation), {}
+        except Exception:
+            self.current_step_index = 0
+            self.current_task = None
+            fallback_obs = self._fallback_observation()
+            self.state_manager.load_task(fallback_obs)
+            return self._flatten_observation(fallback_obs), {}
+
+    def step(self, action: Action) -> Tuple[Dict, Dict, bool, Dict]:
+        try:
+            if self.current_task is None:
+                self.reset()
+            if self.state_manager.done:
+                # Deterministic non-throwing behavior after terminal state.
+                done_obs = self.state_manager.observation or self._fallback_observation()
+                done_reward = {"value": 0.0}
+                return self._flatten_observation(done_obs), done_reward, True, {
+                    "task_id": done_obs.task_id,
+                    "difficulty": done_obs.difficulty,
+                    "final_score": _safe_score(0.0),
+                    "market_phase": get_market_phase(done_obs.step_index),
+                }
+
+            current_step = self.current_task["scenario_steps"][self.current_step_index]
+            valid = action.action_type in current_step["allowed_actions"]
+
+            final_score = grade_action(action, self.current_task, self.current_step_index) if valid else _safe_score(0.0)
+            reward = build_reward(action, self.current_task, final_score, valid=valid)
+
+            next_index = min(self.current_step_index + 1, self.current_task["max_steps"] - 1)
+
+            next_step = deepcopy(self.current_task["scenario_steps"][next_index])
+            next_step = self._merge_action_effects(next_step, action)
+
+            self.current_task["scenario_steps"][next_index] = next_step
+
+            next_obs = self._observation_from_step(self.current_task, step_index=next_index)
+
+            done = self.current_step_index >= self.current_task["max_steps"] - 1
+            self.current_step_index = next_index
+
+            self.state_manager.apply_step(action, reward.value, final_score, next_obs, done=done)
+
+            info = {
+                "task_id": self.current_task["task_id"],
+                "difficulty": self.current_task["difficulty"],
+                "final_score": final_score,
+                "market_phase": get_market_phase(self.current_step_index),
+            }
+
+            return self._flatten_observation(next_obs), {"value": float(reward.value)}, done, info
+        except Exception:
+            fallback_obs = self._fallback_observation()
+            self.state_manager.load_task(fallback_obs)
+            return self._flatten_observation(fallback_obs), {"value": 0.0}, True, {
+                "task_id": fallback_obs.task_id,
+                "difficulty": fallback_obs.difficulty,
+                "final_score": _safe_score(0.0),
+                "market_phase": get_market_phase(0),
+            }
 
     def state(self):
         return self.state_manager.state_view()

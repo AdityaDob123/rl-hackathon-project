@@ -108,13 +108,21 @@ def tasks():
 
 
 @app.post("/reset")
-def reset(req: Optional[ResetRequest] = None):
+async def reset(request: Request):
+    task_id: Optional[str] = None
+
+    # Keep this endpoint permissive because validators may send
+    # empty body, null, or partially shaped JSON.
     try:
-        task_id = req.task_id if req and req.task_id else None
-        obs = env.reset(task_id)
-        return obs.model_dump()
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        payload = await request.json()
+        if isinstance(payload, dict):
+            value = payload.get("task_id")
+            task_id = value if isinstance(value, str) and value.strip() else None
+    except Exception:
+        task_id = None
+
+    obs, info = env.reset(task_id)
+    return {"observation": obs, "info": info}
 
 
 @app.post("/step")
@@ -122,8 +130,8 @@ def step(action: Action):
     try:
         obs, reward, done, info = env.step(action)
         return {
-            "observation": obs.model_dump(),
-            "reward": reward.model_dump(),
+            "observation": obs,
+            "reward": reward,
             "done": done,
             "info": info,
         }

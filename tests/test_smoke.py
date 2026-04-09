@@ -3,7 +3,7 @@ import pytest
 
 from app.api import app
 from app.env import TradeDeskOpenEnv
-from app.models import Action, Observation
+from app.models import Action
 
 
 # ─────────────────────────────────────────────────
@@ -12,7 +12,7 @@ from app.models import Action, Observation
 
 def test_env_smoke():
     env = TradeDeskOpenEnv()
-    obs = env.reset("easy_signal_detection")
+    env.reset("easy_signal_detection")
     action = Action(action_type="buy", ticker="AAPL", order_fraction=0.25, confidence=0.8, rationale_tags=["trend_up"])
     next_obs, reward, done, info = env.step(action)
     assert done is True
@@ -21,21 +21,27 @@ def test_env_smoke():
     assert next_obs.step_index == 0
 
 
-def test_step_before_reset_raises():
+def test_step_before_reset_auto_recovers():
     env = TradeDeskOpenEnv()
     action = Action(action_type="hold", confidence=0.4, rationale_tags=["waiting"])
-    with pytest.raises(RuntimeError, match="not initialized"):
-        env.step(action)
+    obs, reward, done, info = env.step(action)
+    assert obs is not None
+    assert reward is not None
+    assert isinstance(done, bool)
+    assert "final_score" in info
 
 
-def test_step_after_done_raises():
-    """Calling step() after episode is done should raise."""
+def test_step_after_done_returns_terminal_state():
+    """Calling step() after done should return a safe terminal response."""
     env = TradeDeskOpenEnv()
     env.reset("easy_signal_detection")
     action = Action(action_type="buy", ticker="AAPL", order_fraction=0.25, confidence=0.8, rationale_tags=["trend_up"])
     env.step(action)
-    with pytest.raises(RuntimeError, match="already finished"):
-        env.step(action)
+    obs, reward, done, info = env.step(action)
+    assert done is True
+    assert obs is not None
+    assert reward.value == 0.0
+    assert info["final_score"] > 0.0
 
 
 def test_invalid_action_type_is_scored_minimum_safe_value():
@@ -49,7 +55,9 @@ def test_invalid_action_type_is_scored_minimum_safe_value():
 
 def test_multistep_medium_task_progresses():
     env = TradeDeskOpenEnv()
-    obs = env.reset("medium_position_management")
+    env.reset("medium_position_management")
+    obs = env.state().observation
+    assert obs is not None
     assert obs.max_steps == 2
     action1 = Action(action_type="sell", ticker="MSFT", order_fraction=1.0, confidence=0.9, rationale_tags=["stop_loss", "downtrend", "high_volatility"])
     next_obs, _, done, _ = env.step(action1)
@@ -93,16 +101,18 @@ def test_buy_requires_order_fraction():
 def test_double_reset_is_clean():
     """Resetting twice should produce the same initial observation."""
     env = TradeDeskOpenEnv()
-    obs1 = env.reset("easy_signal_detection")
+    obs1, _ = env.reset("easy_signal_detection")
     env.reset("medium_position_management")
-    obs2 = env.reset("easy_signal_detection")
-    assert obs1.model_dump() == obs2.model_dump()
+    obs2, _ = env.reset("easy_signal_detection")
+    assert obs1 == obs2
 
 
 def test_hard_task_rebalance_full_episode():
     """Run hard task to completion with valid rebalance actions."""
     env = TradeDeskOpenEnv()
-    obs = env.reset("hard_portfolio_allocation")
+    env.reset("hard_portfolio_allocation")
+    obs = env.state().observation
+    assert obs is not None
     assert obs.max_steps == 2
 
     action1 = Action(
@@ -130,8 +140,8 @@ def test_hold_on_all_tasks():
     """Hold is always allowed and shouldn't crash."""
     env = TradeDeskOpenEnv()
     for task_id in ["easy_signal_detection", "medium_position_management", "hard_portfolio_allocation"]:
-        obs = env.reset(task_id)
-        if "hold" in obs.allowed_actions:
+        obs, _ = env.reset(task_id)
+        if "hold" in obs["allowed_actions"]:
             action = Action(action_type="hold", confidence=0.5, rationale_tags=["test"])
             _, _, done, info = env.step(action)
             assert 0.0 < info["final_score"] < 1.0
@@ -156,7 +166,9 @@ def test_strategy_engine_easy_task():
     from inference import StrategyEngine
     env = TradeDeskOpenEnv()
     agent = StrategyEngine()
-    obs = env.reset("easy_signal_detection")
+    env.reset("easy_signal_detection")
+    obs = env.state().observation
+    assert obs is not None
     action = agent.act(obs)
     assert action.action_type in obs.allowed_actions
     assert action.confidence > 0
@@ -168,7 +180,9 @@ def test_strategy_engine_medium_task():
     from inference import StrategyEngine
     env = TradeDeskOpenEnv()
     agent = StrategyEngine()
-    obs = env.reset("medium_position_management")
+    env.reset("medium_position_management")
+    obs = env.state().observation
+    assert obs is not None
     action1 = agent.act(obs)
     assert action1.action_type in obs.allowed_actions
     next_obs, _, done, _ = env.step(action1)
@@ -182,7 +196,9 @@ def test_strategy_engine_hard_task():
     from inference import StrategyEngine
     env = TradeDeskOpenEnv()
     agent = StrategyEngine()
-    obs = env.reset("hard_portfolio_allocation")
+    env.reset("hard_portfolio_allocation")
+    obs = env.state().observation
+    assert obs is not None
     action = agent.act(obs)
     assert action.action_type == "rebalance"
     assert action.target_allocations is not None
@@ -233,13 +249,13 @@ def test_api_reset_allows_empty_body():
     response = client.post("/reset", json={})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["task_id"] == "easy_signal_detection"
+    assert payload["observation"]["task_id"] == "easy_signal_detection"
 
 
-def test_api_reset_invalid_task_returns_404():
+def test_api_reset_invalid_task_falls_back_to_default():
     client = TestClient(app)
     response = client.post("/reset", json={"task_id": "nonexistent_task"})
-    assert response.status_code == 404
+    assert response.status_code == 200
 
 
 def test_api_step_without_reset_returns_error():
