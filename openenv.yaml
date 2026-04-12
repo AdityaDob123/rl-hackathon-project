@@ -1,0 +1,2 @@
+name: TradeDesk OpenEnv
+entry_point: app.env:TradeDeskOpenEnv
